@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ChromaDB Collection Viewer</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f7f9fa; margin: 0; padding: 0; }
+        .container { max-width: 1100px; margin: 40px auto; background: #fff; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); padding: 32px 28px 24px 28px; }
+        h2 { color: #222; margin-bottom: 24px; }
+        table { width: 100%; border-collapse: collapse; background: #fff; }
+        th, td { padding: 8px 10px; border-bottom: 1px solid #e0e0e0; text-align: left; }
+        th { background: #f0f2f5; }
+        .error { color: #e53935; margin-bottom: 18px; }
+        .chunk-text { max-width: 400px; white-space: pre-wrap; word-break: break-all; font-size: 0.97em; color: #333; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2 id="collection-title">ChromaDB Collection</h2>
+        <div id="error-msg" class="error"></div>
+        <table id="chroma-table">
+            <thead id="chroma-table-head"></thead>
+            <tbody id="chroma-table-body"></tbody>
+        </table>
+    </div>
+    <script>
+        function getCollectionName() {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('collection');
+        }
+        async function fetchCollectionData(collection) {
+            try {
+                const res = await fetch(`/api/chroma_collection?collection=${encodeURIComponent(collection)}`);
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || 'Failed to fetch collection');
+                return data;
+            } catch (e) {
+                document.getElementById('error-msg').textContent = e.message;
+                return null;
+            }
+        }
+        function renderTable(columns, rows) {
+            const thead = document.getElementById('chroma-table-head');
+            const tbody = document.getElementById('chroma-table-body');
+            thead.innerHTML = '<tr>' + columns.map(col => `<th>${col}</th>`).join('') + '</tr>';
+            tbody.innerHTML = rows.length ? rows.map(row => `<tr>${row.map((cell,i) => i===columns.length-1 ? `<td class=\"chunk-text\">${cell}</td>` : `<td>${cell}</td>`).join('')}</tr>`).join('') : '<tr><td colspan="'+columns.length+'" style="text-align:center; color:#888;">No data</td></tr>';
+        }
+        (async function() {
+            const collection = getCollectionName();
+            if (!collection) {
+                document.getElementById('error-msg').textContent = 'No collection specified.';
+                return;
+            }
+            document.getElementById('collection-title').textContent = `ChromaDB Collection: ${collection}`;
+            const data = await fetchCollectionData(collection);
+            if (data && data.success) {
+                renderTable(data.columns, data.rows);
+            }
+        })();
+    </script>
+</body>
+</html>

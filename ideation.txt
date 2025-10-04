@@ -1,0 +1,293 @@
+you are a world class software developer and ml ai expert with superb hands on experience, knowing the complete in and outs of each and everything related to these topics. you like to analyse the complete flow everytime and are very careful of possible errors and therefore think carefully and plan for the complete flow, without forgetting the big picture. now i am creating a plugin kind of thing for ai coding assistants, that will help me tackle working on large codebases. the problem i am trying to solve is that coding agent are ineffective for large codebases as they dont know which file they need to read, when a user comes with a query.
+This is a sophisticated system that combines multiple database technologies. Here is a detailed, implementable plan.
+
+🎯 System Architecture Overview
+Your system indexes codebases into three specialized databases, each serving a distinct role in retrieval. The PostgreSQL stores searchable metadata, ChromaDB enables semantic search via embeddings, and Neo4j maps code relationships. A SQLite database acts as the control plane to coordinate everything.
+
+Local Setup Without Docker
+Since you're working on Windows without Docker:
+
+PostgreSQL: Download and install PostgreSQL locally
+
+Neo4j: Install Neo4j Desktop for local graph database
+
+ChromaDB: Install directly via pip: pip install chromadb
+
+SQLite: Comes pre-installed with Python
+
+📊 Detailed Database Schemas
+1. Control Plane (SQLite) - repository_registry.db
+This database tracks all indexed repositories and their corresponding tables across the three main databases.
+
+Table: indexed_repositories
+
+sql
+CREATE TABLE indexed_repositories (
+    repo_id TEXT PRIMARY KEY,
+    repo_name TEXT NOT NULL,
+    repo_path TEXT UNIQUE NOT NULL,
+    indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    postgres_table_name TEXT NOT NULL,
+    chroma_collection_name TEXT NOT NULL,
+    neo4j_graph_name TEXT NOT NULL
+);
+2. Metadata Storage (PostgreSQL) - Table per repository
+Each repository gets a dedicated table following the pattern: repo_<repo_id>_metadata
+
+sql
+CREATE TABLE repo_<repo_id>_metadata (
+    chunk_id TEXT PRIMARY KEY,
+    file_path TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    chunk_text TEXT NOT NULL,
+    chunk_type TEXT NOT NULL, -- 'function', 'class', 'import', 'docstring'
+    language TEXT NOT NULL, -- 'python', 'javascript', etc.
+    start_line INTEGER NOT NULL,
+    end_line INTEGER NOT NULL,
+    parent_class TEXT, -- for methods
+    function_name TEXT, -- for functions
+    imports JSONB, -- array of imported modules
+    defined_symbols JSONB, -- symbols defined in this chunk
+    used_symbols JSONB, -- symbols used in this chunk
+    token_count INTEGER NOT NULL,
+    embedding_vector_id TEXT -- reference to ChromaDB ID
+);
+3. Vector Storage (ChromaDB) - Collection per repository
+Collections follow the pattern: repo_<repo_id>_embeddings
+
+Configuration:
+
+embedding_function: Your chosen local embedding model
+
+metadata: {"repo_id": "<repo_id>", "repo_name": "<name>"}
+
+4. Knowledge Graph (Neo4j) - Graph per repository
+Node and relationship structure:
+
+Node Labels:
+
+CodeChunk - Base chunk node
+
+File - File container
+
+Class, Function, Module - Specific types
+
+Node Properties:
+
+cypher
+CREATE (c:CodeChunk:Function {
+    chunk_id: "unique_id",
+    repo_id: "repo_123",
+    file_path: "src/utils.py",
+    chunk_type: "function",
+    name: "calculate_score",
+    content: "def calculate_score(...)",
+    start_line: 45,
+    end_line: 62
+})
+Relationship Types:
+
+CALLS - Function A calls Function B
+
+IMPORTS - File imports from Module
+
+CONTAINS - File contains CodeChunk
+
+INHERITS_FROM - Class inheritance
+
+REFERENCES - Chunk references another symbol
+
+🔄 Complete Indexing Flow
+Phase 1: Initialization and Repository Registration
+Receive repository path from user
+
+Generate unique repo_id (SHA-256 of path + timestamp)
+
+Create database/collection names using pattern: repo_<repo_id>_*
+
+Register in SQLite control plane with all table names
+
+Create empty tables/collections in all three databases
+
+Phase 2: Code Parsing and Chunking
+You'll need a multi-language parser to understand code structure. Use Tree-sitter with language grammars for Python, JavaScript, TypeScript, etc. 
+
+Installation:
+
+bash
+pip install tree-sitter tree-sitter-languages
+Chunking Strategy:
+
+Functions: Individual functions with their docstrings
+
+Classes: Class definition with methods (large classes split)
+
+Imports: Import statements as separate chunks
+
+Documentation: Module-level docstrings
+
+Configuration: JSON, YAML files as individual chunks
+
+Example Python parser using Tree-sitter:
+
+python
+from tree_sitter import Language, Parser
+from tree_sitter_languages import get_language
+
+def parse_python_file(file_path):
+    language = get_language('python')
+    parser = Parser(language)
+    
+    with open(file_path, 'r') as f:
+        source_code = f.read()
+    
+    tree = parser.parse(bytes(source_code, 'utf-8'))
+    root_node = tree.root_node
+    
+    chunks = []
+    
+    # Extract functions
+    for node in root_node.children:
+        if node.type == 'function_definition':
+            func_name = node.child_by_field_name('name').text.decode()
+            start_line = node.start_point[0]
+            end_line = node.end_point[0]
+            chunk_text = source_code[node.start_byte:node.end_byte]
+            
+            chunks.append({
+                'type': 'function',
+                'name': func_name,
+                'text': chunk_text,
+                'start_line': start_line,
+                'end_line': end_line
+            })
+    
+    return chunks
+Phase 3: Multi-Database Population
+For each code chunk:
+
+Extract metadata and store in PostgreSQL
+
+Generate embedding and store in ChromaDB
+
+Create graph nodes/relationships in Neo4j
+
+Embedding Strategy - Local Models:
+Since you need offline operation, use local embedding models:
+
+all-MiniLM-L6-v2 (Recommended): pip install sentence-transformers
+
+BAAI/bge-small-en - Good performance for code
+
+InstructorXL - For instruction-aware embeddings
+
+python
+from sentence_transformers import SentenceTransformer
+import chromadb
+
+class LocalEmbedder:
+    def __init__(self):
+        self.model = SentenceTransformer('all-MiniLM-L6-v2')
+    
+    def embed_text(self, text):
+        return self.model.encode(text).tolist()
+
+# Initialize ChromaDB
+client = chromadb.PersistentClient(path="./chroma_storage")
+collection = client.create_collection(
+    name=f"repo_{repo_id}_embeddings",
+    embedding_function=embedder.embed_text
+)
+Phase 4: Graph Relationship Building
+Build these critical relationships in Neo4j:
+
+File Structure: (File)-[CONTAINS]->(CodeChunk)
+
+Function Calls: (Function)-[CALLS]->(Function)
+
+Class Inheritance: (Class)-[INHERITS_FROM]->(Class)
+
+Import Dependencies: (File)-[IMPORTS]->(Module)
+
+Symbol References: (Chunk)-[REFERENCES]->(Symbol)
+
+🔍 Retrieval and Context Building
+When a user query arrives:
+
+Semantic Search: Query ChromaDB with the question to find relevant chunks
+
+Graph Expansion: Use Neo4j to find connected chunks (called functions, imported modules, related classes)
+
+Metadata Filtering: Use PostgreSQL to filter by file type, language, or other criteria
+
+Context Assembly: Combine results, deduplicate, and rank by relevance
+
+Smart Retrieval Algorithm:
+
+python
+def build_context(user_query, repo_id, max_tokens=240000):
+    # Step 1: Semantic search
+    semantic_chunks = chroma_collection.query(
+        query_texts=[user_query],
+        n_results=20
+    )
+    
+    # Step 2: Graph expansion
+    graph_chunks = neo4j_session.run("""
+        MATCH (c:CodeChunk {repo_id: $repo_id})
+        WHERE c.chunk_id IN $initial_chunks
+        MATCH (c)-[r:CALLS|IMPORTS|REFERENCES*1..2]-(related)
+        RETURN DISTINCT related
+        LIMIT 30
+    """, repo_id=repo_id, initial_chunks=semantic_chunks)
+    
+    # Step 3: Combine and rank using metadata
+    all_chunks = combine_and_rank_chunks(
+        semantic_chunks, graph_chunks, user_query
+    )
+    
+    # Step 4: Token-aware selection
+    final_context = select_within_token_limit(all_chunks, max_tokens)
+    
+    return final_context
+🚀 Implementation Roadmap
+Priority 1: Foundation (Week 1-2)
+Set up local databases (PostgreSQL, Neo4j, ChromaDB)
+
+Implement SQLite control plane with repository registration
+
+Build basic file walker and chunker
+
+Priority 2: Code Analysis (Week 3-4)
+Integrate Tree-sitter for multiple languages
+
+Implement sophisticated chunking strategy
+
+Build metadata extraction for different chunk types
+
+Priority 3: Database Integration (Week 5-6)
+Implement PostgreSQL metadata storage
+
+Build ChromaDB with local embeddings
+
+Create Neo4j knowledge graph builder
+
+Priority 4: Retrieval System (Week 7-8)
+Build multi-database query system
+
+Implement context assembly with token counting
+
+Create ranking algorithm for relevance
+
+⚠️ Critical Considerations
+Performance: Indexing large codebases will be CPU-intensive. Consider background processing with progress tracking.
+
+Memory Management: Process files sequentially rather than loading everything into memory.
+
+Error Handling: Code parsing will fail on some files. Implement graceful fallbacks to simpler text-based chunking.
+
+Incremental Updates: For production use, you'll need to detect changed files and update indexes incrementally.
+
+Token Counting: Use tiktoken or similar to accurately count tokens for your specific model's tokenizer.
+
+now i want to build this project. but strictly keep in mind, i dont want to build everything at once. i want to follow the road map strictly, and i will only move to the next step, once the current objective is achieved successfully dont write code for everything at once, build it step by step, according to the roadmap

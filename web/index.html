@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Database Connection Status</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: #f7f9fa;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 420px;
+            margin: 60px auto;
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+            padding: 32px 28px 24px 28px;
+        }
+        h2 {
+            text-align: center;
+            color: #222;
+            margin-bottom: 28px;
+        }
+        .status-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .status-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 18px;
+            font-size: 1.08em;
+        }
+        .status-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            margin-right: 14px;
+            display: inline-block;
+        }
+        .ok { background: #4caf50; }
+        .fail { background: #e53935; }
+        .pending { background: #bdbdbd; }
+        .error-msg {
+            color: #e53935;
+            font-size: 0.98em;
+            margin-left: 30px;
+            margin-top: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Database Connection Status</h2>
+        <ul class="status-list">
+            <li class="status-item" id="postgres-status">
+                <span class="status-dot pending"></span>
+                PostgreSQL
+                <div class="error-msg" id="postgres-error"></div>
+            </li>
+            <li class="status-item" id="neo4j-status">
+                <span class="status-dot pending"></span>
+                Neo4j
+                <div class="error-msg" id="neo4j-error"></div>
+            </li>
+            <li class="status-item" id="chroma-status">
+                <span class="status-dot pending"></span>
+                ChromaDB
+                <div class="error-msg" id="chroma-error"></div>
+            </li>
+            <li class="status-item" id="sqlite-status">
+                <span class="status-dot pending"></span>
+                SQLite
+                <div class="error-msg" id="sqlite-error"></div>
+            </li>
+        </ul>
+    </div>
+    <div class="container" style="max-width: 900px; margin-top: 30px;">
+        <h2 style="display:flex; align-items:center; justify-content:space-between;">
+            <span>Registered Repositories</span>
+            <button id="clear-repos-btn" style="padding:6px 16px; background:#e53935; color:#fff; border:none; border-radius:5px; font-size:0.98em; cursor:pointer; margin-left:18px;">Clear All</button>
+            <span id="clear-repos-loader" style="display:none; margin-left:10px; vertical-align:middle;">
+                <svg width="18" height="18" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20" fill="none" stroke="#e53935" stroke-width="5" stroke-linecap="round" stroke-dasharray="31.4 31.4" transform="rotate(-90 25 25)"><animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite"/></circle></svg>
+            </span>
+        </h2>
+    <form id="repo-form" style="margin-bottom:22px; display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; position:relative;">
+            <div style="flex:1; min-width:180px;">
+                <label for="repo_name" style="font-size:0.98em; color:#333;">Name</label><br>
+                <input type="text" id="repo_name" name="repo_name" required style="width:100%; padding:7px 8px; border:1px solid #bbb; border-radius:5px; font-size:1em;">
+            </div>
+            <div style="flex:2; min-width:260px;">
+                <label for="repo_path" style="font-size:0.98em; color:#333;">Path</label><br>
+                <input type="text" id="repo_path" name="repo_path" required style="width:100%; padding:7px 8px; border:1px solid #bbb; border-radius:5px; font-size:1em;">
+            </div>
+            <button id="repo-form-btn" type="submit" style="padding:8px 22px; background:#1976d2; color:#fff; border:none; border-radius:5px; font-size:1em; cursor:pointer;">Register</button>
+            <span id="repo-form-loader" style="display:none; margin-left:10px;">
+                <svg width="22" height="22" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20" fill="none" stroke="#1976d2" stroke-width="5" stroke-linecap="round" stroke-dasharray="31.4 31.4" transform="rotate(-90 25 25)"><animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite"/></circle></svg>
+            </span>
+            <span id="repo-form-msg" style="margin-left:18px; font-size:0.98em;"></span>
+        </form>
+        <table id="repo-table" style="width:100%; border-collapse:collapse; background:#fff;">
+            <thead>
+                <tr style="background:#f0f2f5;">
+                    <th style="padding:8px 10px; border-bottom:1px solid #e0e0e0; text-align:left;">Name</th>
+                    <th style="padding:8px 10px; border-bottom:1px solid #e0e0e0; text-align:left;">Path</th>
+                    <th style="padding:8px 10px; border-bottom:1px solid #e0e0e0; text-align:left;">Indexed At</th>
+                    <th style="padding:8px 10px; border-bottom:1px solid #e0e0e0; text-align:left;">Postgres Table</th>
+                    <th style="padding:8px 10px; border-bottom:1px solid #e0e0e0; text-align:left;">Chroma Collection</th>
+                    <th style="padding:8px 10px; border-bottom:1px solid #e0e0e0; text-align:left;">Neo4j Graph</th>
+                </tr>
+            </thead>
+            <tbody id="repo-table-body">
+                <tr><td colspan="6" style="text-align:center; color:#888; padding:18px;">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <script>
+        async function checkStatus() {
+            // This endpoint should return a JSON object with status and error for each DB
+            // Example: { postgres: {ok: true}, neo4j: {ok: false, error: "msg"}, ... }
+            try {
+                const res = await fetch('/api/db_status');
+                const data = await res.json();
+                updateStatus('postgres', data.postgres);
+                updateStatus('neo4j', data.neo4j);
+                updateStatus('chroma', data.chroma);
+                updateStatus('sqlite', data.sqlite);
+            } catch (e) {
+                // If the backend is unreachable, show all as failed
+                ['postgres','neo4j','chroma','sqlite'].forEach(db => {
+                    updateStatus(db, {ok: false, error: 'API unreachable'});
+                });
+            }
+        }
+
+        function updateStatus(db, status) {
+            const item = document.getElementById(db + '-status');
+            const dot = item.querySelector('.status-dot');
+            const errorDiv = document.getElementById(db + '-error');
+            dot.className = 'status-dot ' + (status.ok ? 'ok' : 'fail');
+            errorDiv.textContent = status.ok ? '' : (status.error || 'Connection failed');
+        }
+
+        // Initial check on page load
+        checkStatus();
+        fetchRepositories();
+
+        async function fetchRepositories() {
+            const tbody = document.getElementById('repo-table-body');
+            try {
+                const res = await fetch('/api/repositories');
+                const data = await res.json();
+                const repos = data.repositories || [];
+                if (repos.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#888; padding:18px;">No repositories registered.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = repos.map(r => `
+                    <tr>
+                        <td style="padding:7px 10px; border-bottom:1px solid #f0f0f0;">${r.repo_name}</td>
+                        <td style="padding:7px 10px; border-bottom:1px solid #f0f0f0; font-size:0.97em; color:#444;">${r.repo_path}</td>
+                        <td style="padding:7px 10px; border-bottom:1px solid #f0f0f0;">${r.indexed_at}</td>
+                        <td style="padding:7px 10px; border-bottom:1px solid #f0f0f0; font-size:0.97em; color:#1976d2;">
+                            <a href="pg_table.html?table=${encodeURIComponent(r.postgres_table_name)}" target="_blank" style="color:#1976d2; text-decoration:underline;">${r.postgres_table_name}</a>
+                        </td>
+                        <td style="padding:7px 10px; border-bottom:1px solid #f0f0f0; font-size:0.97em; color:#1976d2;">
+                            <a href="chroma_collection.html?collection=${encodeURIComponent(r.chroma_collection_name)}" target="_blank" style="color:#1976d2; text-decoration:underline;">${r.chroma_collection_name}</a>
+                        </td>
+                        <td style="padding:7px 10px; border-bottom:1px solid #f0f0f0; font-size:0.97em; color:#444;">${r.neo4j_graph_name}</td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#e53935; padding:18px;">Failed to load repositories.</td></tr>';
+            }
+        }
+
+        // Handle repository registration form
+        document.getElementById('repo-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const name = document.getElementById('repo_name').value.trim();
+            const path = document.getElementById('repo_path').value.trim();
+            const msg = document.getElementById('repo-form-msg');
+            const btn = document.getElementById('repo-form-btn');
+            const loader = document.getElementById('repo-form-loader');
+            msg.textContent = '';
+            msg.style.color = '#222';
+            if (!name || !path) {
+                msg.textContent = 'Both fields are required.';
+                msg.style.color = '#e53935';
+                return;
+            }
+            btn.disabled = true;
+            loader.style.display = 'inline-block';
+            try {
+                // Register repository first
+                const res = await fetch('/api/register_repository', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ repo_name: name, repo_path: path })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    // Now trigger chunking
+                    msg.textContent = 'Repository registered! Chunking...';
+                    msg.style.color = '#1976d2';
+                    try {
+                        const chunkRes = await fetch('/api/index_repository', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ repo_path: path })
+                        });
+                        const chunkData = await chunkRes.json();
+                        if (chunkData.success) {
+                            msg.textContent = `Repository registered and chunked! (${chunkData.chunk_count} chunks)`;
+                            msg.style.color = '#4caf50';
+                        } else {
+                            msg.textContent = chunkData.error || 'Chunking failed.';
+                            msg.style.color = '#e53935';
+                        }
+                    } catch (err) {
+                        msg.textContent = 'Chunking failed.';
+                        msg.style.color = '#e53935';
+                    }
+                    document.getElementById('repo-form').reset();
+                    fetchRepositories();
+                } else {
+                    msg.textContent = data.error || 'Registration failed.';
+                    msg.style.color = '#e53935';
+                }
+            } catch (err) {
+                msg.textContent = 'Registration failed.';
+                msg.style.color = '#e53935';
+            } finally {
+                btn.disabled = false;
+                loader.style.display = 'none';
+            }
+        });
+        // Handle clear all repositories
+        document.getElementById('clear-repos-btn').addEventListener('click', async function(e) {
+            e.preventDefault();
+            if (!confirm('Are you sure you want to clear all registered repositories?')) return;
+            const btn = document.getElementById('clear-repos-btn');
+            const loader = document.getElementById('clear-repos-loader');
+            btn.disabled = true;
+            loader.style.display = 'inline-block';
+            try {
+                const res = await fetch('/api/clear_repositories', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    fetchRepositories();
+                } else {
+                    alert(data.error || 'Failed to clear repositories.');
+                }
+            } catch (err) {
+                alert('Failed to clear repositories.');
+            } finally {
+                btn.disabled = false;
+                loader.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>

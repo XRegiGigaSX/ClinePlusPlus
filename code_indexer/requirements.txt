@@ -1,0 +1,13 @@
+# Python requirements for codebase indexing system
+
+chromadb==0.4.22
+psycopg2-binary
+neo4j
+sentence-transformers
+numpy==1.26.4
+javalang
+transformers
+torch
+fastapi
+uvicorn
+starlette
