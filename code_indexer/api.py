@@ -374,6 +374,39 @@ def serve_chroma_collection():
         html = f.read()
     return Response(content=html, media_type="text/html")
 
+@app.post("/api/clear_psql_tables")
+def clear_psql_tables():
+    try:
+        conn = psycopg2.connect(
+            host=POSTGRES_HOST,
+            port=POSTGRES_PORT,
+            dbname=POSTGRES_DB,
+            user=POSTGRES_USER,
+            password=POSTGRES_PASSWORD
+        )
+        cur = conn.cursor()
+        cur.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+        tables = [row[0] for row in cur.fetchall()]
+        for table in tables:
+            cur.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/clear_chroma_collections")
+def clear_chroma_collections():
+    try:
+        chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
+        collections = chroma_client.list_collections()
+        for col in collections:
+            chroma_client.delete_collection(name=col.name)
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("code_indexer.api:app", host="0.0.0.0", port=8000, reload=True)

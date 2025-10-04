@@ -11,7 +11,7 @@
             padding: 0;
         }
         .container {
-            max-width: 420px;
+            max-width: 1200px;
             margin: 60px auto;
             background: #fff;
             border-radius: 10px;
@@ -19,9 +19,11 @@
             padding: 32px 28px 24px 28px;
         }
         h2 {
-            text-align: center;
-            color: #222;
-            margin-bottom: 28px;
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            font-size:1.3em;
+            margin-bottom: 18px;
         }
         .status-list {
             list-style: none;
@@ -49,6 +51,68 @@
             font-size: 0.98em;
             margin-left: 30px;
             margin-top: 2px;
+        }
+        .action-btn {
+            padding: 5px 14px;
+            font-size: 0.97em;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.18s, color 0.18s;
+            margin: 0 2px;
+        }
+        .primary-btn {
+            background: #1976d2;
+            color: #fff;
+        }
+        .primary-btn:hover {
+            background: #1251a3;
+        }
+        .danger-btn {
+            background: #fff0f0;
+            color: #e53935;
+            border: 1px solid #e53935;
+        }
+        .danger-btn:hover {
+            background: #e53935;
+            color: #fff;
+        }
+        .input-label {
+            font-size: 0.98em;
+            color: #333;
+            margin-bottom: 2px;
+        }
+        .input-field {
+            width: 100%;
+            padding: 7px 10px;
+            border: 1px solid #bbb;
+            border-radius: 5px;
+            font-size: 1em;
+            margin-bottom: 2px;
+            background: #f9fafd;
+            transition: border 0.18s;
+        }
+        .input-field:focus {
+            border: 1.5px solid #1976d2;
+            outline: none;
+            background: #fff;
+        }
+        .loader-inline {
+            display: none;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        .loader-inline svg {
+            vertical-align: middle;
+        }
+        @media (max-width: 900px) {
+            .container { max-width: 99vw; }
+            table { min-width: 600px; }
+        }
+        @media (max-width: 600px) {
+            .container { max-width: 100vw; padding: 8px 2px; }
+            form { flex-direction: column; gap: 8px; }
+            table { min-width: 400px; font-size: 0.97em; }
         }
     </style>
 </head>
@@ -78,44 +142,50 @@
             </li>
         </ul>
     </div>
-    <div class="container" style="max-width: 900px; margin-top: 30px;">
-        <h2 style="display:flex; align-items:center; justify-content:space-between;">
+    <div class="container" style="max-width: 1200px; margin-top: 30px;">
+        <h2 style="display:flex; align-items:center; justify-content:space-between; font-size:1.3em; margin-bottom: 18px;">
             <span>Registered Repositories</span>
-            <button id="clear-repos-btn" style="padding:6px 16px; background:#e53935; color:#fff; border:none; border-radius:5px; font-size:0.98em; cursor:pointer; margin-left:18px;">Clear All</button>
-            <span id="clear-repos-loader" style="display:none; margin-left:10px; vertical-align:middle;">
-                <svg width="18" height="18" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20" fill="none" stroke="#e53935" stroke-width="5" stroke-linecap="round" stroke-dasharray="31.4 31.4" transform="rotate(-90 25 25)"><animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite"/></circle></svg>
-            </span>
+            <div style="display:flex; gap:10px; align-items:center;">
+                <button id="clear-repos-btn" class="action-btn danger-btn">Clear All</button>
+                <span id="clear-repos-loader" class="loader-inline"></span>
+                <span id="clear-extra-loader" class="loader-inline"></span>
+            </div>
         </h2>
-    <form id="repo-form" style="margin-bottom:22px; display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; position:relative;">
+        <form id="repo-form" style="margin-bottom:22px; display:flex; gap:18px; align-items:flex-end; flex-wrap:wrap; position:relative; background:#f8fafc; padding:18px 18px 10px 18px; border-radius:8px; box-shadow:0 1px 6px rgba(0,0,0,0.04);">
             <div style="flex:1; min-width:180px;">
-                <label for="repo_name" style="font-size:0.98em; color:#333;">Name</label><br>
-                <input type="text" id="repo_name" name="repo_name" required style="width:100%; padding:7px 8px; border:1px solid #bbb; border-radius:5px; font-size:1em;">
+                <label for="repo_name" class="input-label">Name</label><br>
+                <input type="text" id="repo_name" name="repo_name" required class="input-field">
             </div>
-            <div style="flex:2; min-width:260px;">
-                <label for="repo_path" style="font-size:0.98em; color:#333;">Path</label><br>
-                <input type="text" id="repo_path" name="repo_path" required style="width:100%; padding:7px 8px; border:1px solid #bbb; border-radius:5px; font-size:1em;">
+            <div style="flex:2; min-width:320px;">
+                <label for="repo_path" class="input-label">Path</label><br>
+                <input type="text" id="repo_path" name="repo_path" required class="input-field">
             </div>
-            <button id="repo-form-btn" type="submit" style="padding:8px 22px; background:#1976d2; color:#fff; border:none; border-radius:5px; font-size:1em; cursor:pointer;">Register</button>
-            <span id="repo-form-loader" style="display:none; margin-left:10px;">
-                <svg width="22" height="22" viewBox="0 0 50 50"><circle cx="25" cy="25" r="20" fill="none" stroke="#1976d2" stroke-width="5" stroke-linecap="round" stroke-dasharray="31.4 31.4" transform="rotate(-90 25 25)"><animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite"/></circle></svg>
-            </span>
+            <button id="repo-form-btn" type="submit" class="action-btn primary-btn" style="height:38px;">Register</button>
+            <div id="repo-form-progress" style="display:none; flex-direction:column; align-items:flex-start; margin-left:18px; min-width:220px;">
+                <div id="repo-form-progress-bar" style="width:100%; height:8px; background:#e0e0e0; border-radius:4px; overflow:hidden; margin-bottom:6px;">
+                    <div id="repo-form-progress-bar-inner" style="width:0%; height:100%; background:#1976d2; transition:width 0.4s;"></div>
+                </div>
+                <span id="repo-form-progress-text" style="font-size:0.98em; color:#1976d2;"></span>
+            </div>
             <span id="repo-form-msg" style="margin-left:18px; font-size:0.98em;"></span>
         </form>
-        <table id="repo-table" style="width:100%; border-collapse:collapse; background:#fff;">
+        <div style="overflow-x:auto;">
+        <table id="repo-table" style="width:100%; min-width:900px; border-collapse:collapse; background:#fff; font-size:1.04em;">
             <thead>
                 <tr style="background:#f0f2f5;">
-                    <th style="padding:8px 10px; border-bottom:1px solid #e0e0e0; text-align:left;">Name</th>
-                    <th style="padding:8px 10px; border-bottom:1px solid #e0e0e0; text-align:left;">Path</th>
-                    <th style="padding:8px 10px; border-bottom:1px solid #e0e0e0; text-align:left;">Indexed At</th>
-                    <th style="padding:8px 10px; border-bottom:1px solid #e0e0e0; text-align:left;">Postgres Table</th>
-                    <th style="padding:8px 10px; border-bottom:1px solid #e0e0e0; text-align:left;">Chroma Collection</th>
-                    <th style="padding:8px 10px; border-bottom:1px solid #e0e0e0; text-align:left;">Neo4j Graph</th>
+                    <th style="padding:10px 14px; border-bottom:1px solid #e0e0e0; text-align:left;">Name</th>
+                    <th style="padding:10px 14px; border-bottom:1px solid #e0e0e0; text-align:left;">Path</th>
+                    <th style="padding:10px 14px; border-bottom:1px solid #e0e0e0; text-align:left;">Indexed At</th>
+                    <th style="padding:10px 14px; border-bottom:1px solid #e0e0e0; text-align:left;">Postgres Table</th>
+                    <th style="padding:10px 14px; border-bottom:1px solid #e0e0e0; text-align:left;">Chroma Collection</th>
+                    <th style="padding:10px 14px; border-bottom:1px solid #e0e0e0; text-align:left;">Neo4j Graph</th>
                 </tr>
             </thead>
             <tbody id="repo-table-body">
                 <tr><td colspan="6" style="text-align:center; color:#888; padding:18px;">Loading...</td></tr>
             </tbody>
         </table>
+        </div>
     </div>
     <script>
         async function checkStatus() {
@@ -193,7 +263,8 @@
                 return;
             }
             btn.disabled = true;
-            loader.style.display = 'inline-block';
+            document.getElementById('repo-form-progress').style.display = 'flex';
+            setProgress(0, 'Registering repository...');
             try {
                 // Register repository first
                 const res = await fetch('/api/register_repository', {
@@ -203,30 +274,41 @@
                 });
                 const data = await res.json();
                 if (data.success) {
-                    // Now trigger chunking
-                    msg.textContent = 'Repository registered! Chunking...';
-                    msg.style.color = '#1976d2';
+                    setProgress(20, 'Repository registered. Chunking and embedding...');
                     try {
+                        // Simulate progress for chunking/embedding (since backend is one call)
+                        let progress = 20;
+                        const progressInterval = setInterval(() => {
+                            progress += Math.random() * 10;
+                            if (progress > 80) progress = 80;
+                            setProgress(progress, 'Chunking and embedding...');
+                        }, 600);
                         const chunkRes = await fetch('/api/index_repository', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ repo_path: path })
                         });
+                        clearInterval(progressInterval);
+                        setProgress(90, 'Storing in databases...');
                         const chunkData = await chunkRes.json();
                         if (chunkData.success) {
+                            setProgress(100, `Repository registered and indexed! (${chunkData.chunk_count} chunks)`);
                             msg.textContent = `Repository registered and chunked! (${chunkData.chunk_count} chunks)`;
                             msg.style.color = '#4caf50';
                         } else {
+                            setProgress(100, chunkData.error || 'Chunking failed.');
                             msg.textContent = chunkData.error || 'Chunking failed.';
                             msg.style.color = '#e53935';
                         }
                     } catch (err) {
+                        setProgress(100, 'Chunking failed.');
                         msg.textContent = 'Chunking failed.';
                         msg.style.color = '#e53935';
                     }
                     document.getElementById('repo-form').reset();
                     fetchRepositories();
                 } else {
+                    setProgress(100, data.error || 'Registration failed.');
                     msg.textContent = data.error || 'Registration failed.';
                     msg.style.color = '#e53935';
                 }
@@ -235,27 +317,44 @@
                 msg.style.color = '#e53935';
             } finally {
                 btn.disabled = false;
-                loader.style.display = 'none';
+                setTimeout(() => {
+                    document.getElementById('repo-form-progress').style.display = 'none';
+                    setProgress(0, '');
+                }, 1200);
             }
+        // Progress bar helper
+        function setProgress(percent, text) {
+            const bar = document.getElementById('repo-form-progress-bar-inner');
+            const txt = document.getElementById('repo-form-progress-text');
+            bar.style.width = percent + '%';
+            txt.textContent = text || '';
+        }
         });
         // Handle clear all repositories
         document.getElementById('clear-repos-btn').addEventListener('click', async function(e) {
             e.preventDefault();
-            if (!confirm('Are you sure you want to clear all registered repositories?')) return;
+            if (!confirm('Are you sure you want to clear all registered repositories, delete ALL PostgreSQL tables, and delete ALL ChromaDB collections?')) return;
             const btn = document.getElementById('clear-repos-btn');
             const loader = document.getElementById('clear-repos-loader');
             btn.disabled = true;
             loader.style.display = 'inline-block';
             try {
+                // Clear repositories
                 const res = await fetch('/api/clear_repositories', { method: 'POST' });
                 const data = await res.json();
-                if (data.success) {
-                    fetchRepositories();
-                } else {
-                    alert(data.error || 'Failed to clear repositories.');
-                }
+                if (!data.success) throw new Error(data.error || 'Failed to clear repositories.');
+                // Clear PSQL tables
+                const psqlRes = await fetch('/api/clear_psql_tables', { method: 'POST' });
+                const psqlData = await psqlRes.json();
+                if (!psqlData.success) throw new Error(psqlData.error || 'Failed to clear PSQL tables.');
+                // Clear ChromaDB collections
+                const chromaRes = await fetch('/api/clear_chroma_collections', { method: 'POST' });
+                const chromaData = await chromaRes.json();
+                if (!chromaData.success) throw new Error(chromaData.error || 'Failed to clear ChromaDB collections.');
+                fetchRepositories();
+                alert('All repositories, PostgreSQL tables, and ChromaDB collections deleted.');
             } catch (err) {
-                alert('Failed to clear repositories.');
+                alert(err.message || 'Failed to clear all data.');
             } finally {
                 btn.disabled = false;
                 loader.style.display = 'none';
