@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Knowledge Graph Viewer</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f7f9fa; margin: 0; }
+        .container { max-width: 1200px; margin: 40px auto; background: #fff; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); padding: 32px 28px 24px 28px; }
+        h2 { text-align: center; color: #222; margin-bottom: 28px; }
+        #repo-select { font-size: 1em; padding: 6px 12px; border-radius: 5px; border: 1px solid #bbb; margin-bottom: 18px; }
+        #graph { width: 100%; height: 600px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fafbfc; }
+    </style>
+    <script type="text/javascript" src="https://unpkg.com/vis-network@9.1.2/dist/vis-network.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h2>Knowledge Graph Viewer</h2>
+        <label for="repo-select">Select Repository:</label>
+        <select id="repo-select"></select>
+        <div id="graph"></div>
+    </div>
+    <script>
+    async function fetchRepositories() {
+        const res = await fetch('/api/repositories');
+        const data = await res.json();
+        return data.repositories || [];
+    }
+    async function fetchKG(repo_id) {
+        const res = await fetch(`/api/kg?repo_id=${encodeURIComponent(repo_id)}`);
+        return await res.json();
+    }
+    function renderGraph(nodes, edges) {
+        const container = document.getElementById('graph');
+        const data = {
+            nodes: new vis.DataSet(nodes),
+            edges: new vis.DataSet(edges)
+        };
+        const options = {
+            nodes: { shape: 'dot', size: 18, font: { size: 16 } },
+            edges: { arrows: 'to', font: { align: 'middle' } },
+            physics: { stabilization: true, barnesHut: { springLength: 120 } }
+        };
+        new vis.Network(container, data, options);
+    }
+    async function main() {
+        const repos = await fetchRepositories();
+        const select = document.getElementById('repo-select');
+        repos.forEach(r => {
+            const opt = document.createElement('option');
+            opt.value = r.repo_id;
+            opt.textContent = r.repo_name;
+            select.appendChild(opt);
+        });
+        if (repos.length > 0) {
+            select.value = repos[0].repo_id;
+            const kg = await fetchKG(repos[0].repo_id);
+            renderGraph(kg.nodes, kg.edges);
+        }
+        select.addEventListener('change', async function() {
+            const kg = await fetchKG(this.value);
+            renderGraph(kg.nodes, kg.edges);
+        });
+    }
+    main();
+    </script>
+</body>
+</html>

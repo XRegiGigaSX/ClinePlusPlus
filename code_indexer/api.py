@@ -52,8 +52,189 @@ async def index_repository(request: Request):
     print(f"Indexing repository at {repo_path}, using table {table_name}")
 
     # Call the chunker
+    print("[KG] Starting chunking...")
     chunks, error_files = chunk_repository(repo_path)
-    print(f"Chunking complete. Chunks found: {len(chunks)}. Error files: {len(error_files)}")
+    print(f"[KG] Chunking complete. Chunks found: {len(chunks)}. Error files: {len(error_files)}")
+
+    # --- Python KG Extraction ---
+    print("[KG] Starting Python KG extraction...")
+    kg_nodes = []
+    kg_rels = []
+    file_nodes = {}
+    class_nodes = {}
+    func_nodes = {}
+    def file_node_id(file_path):
+        return f"file::{file_path}"
+    def class_node_id(file_path, class_name):
+        return f"class::{file_path}::{class_name}"
+    def func_node_id(file_path, func_name, parent_class=None):
+        if parent_class:
+            return f"func::{file_path}::{parent_class}::{func_name}"
+        return f"func::{file_path}::{func_name}"
+    for chunk in chunks:
+        if chunk['language'] != 'python':
+            continue
+        fp = chunk['file_path']
+        if file_node_id(fp) not in file_nodes:
+            file_nodes[file_node_id(fp)] = {
+                'id': file_node_id(fp), 'type': 'File', 'file_path': fp
+            }
+            print(f"[KG] Added file node: {file_node_id(fp)}")
+        if chunk['chunk_type'] == 'class':
+            cname = chunk['function_name'] or chunk.get('class_name') or chunk.get('name') or chunk.get('parent_class') or 'UnknownClass'
+            class_nodes[class_node_id(fp, cname)] = {
+                'id': class_node_id(fp, cname), 'type': 'Class', 'name': cname, 'file_path': fp
+            }
+            print(f"[KG] Added class node: {class_node_id(fp, cname)}")
+            kg_rels.append({'from': file_node_id(fp), 'to': class_node_id(fp, cname), 'type': 'CONTAINS'})
+            print(f"[KG] Added CONTAINS rel: {file_node_id(fp)} -> {class_node_id(fp, cname)}")
+            import re
+            m = re.match(r'class\s+(\w+)\(([^)]*)\)', chunk['chunk_text'])
+            if m:
+                bases = [b.strip() for b in m.group(2).split(',') if b.strip()]
+                for base in bases:
+                    kg_rels.append({'from': class_node_id(fp, cname), 'to': f'class::{fp}::{base}', 'type': 'INHERITS'})
+                    print(f"[KG] Added INHERITS rel: {class_node_id(fp, cname)} -> class::{fp}::{base}")
+        elif chunk['chunk_type'] == 'function':
+            fname = chunk['function_name']
+            parent = chunk.get('parent_class')
+            func_nodes[func_node_id(fp, fname, parent)] = {
+                'id': func_node_id(fp, fname, parent), 'type': 'Function', 'name': fname, 'file_path': fp, 'parent_class': parent
+            }
+            print(f"[KG] Added function node: {func_node_id(fp, fname, parent)}")
+            if parent:
+                kg_rels.append({'from': class_node_id(fp, parent), 'to': func_node_id(fp, fname, parent), 'type': 'CONTAINS'})
+                print(f"[KG] Added CONTAINS rel: {class_node_id(fp, parent)} -> {func_node_id(fp, fname, parent)}")
+            else:
+                kg_rels.append({'from': file_node_id(fp), 'to': func_node_id(fp, fname), 'type': 'CONTAINS'})
+                print(f"[KG] Added CONTAINS rel: {file_node_id(fp)} -> {func_node_id(fp, fname)}")
+            import re
+            called = set(re.findall(r'(\w+)\s*\(', chunk['chunk_text']))
+            for callee in called:
+                if callee != fname:
+                    kg_rels.append({'from': func_node_id(fp, fname, parent), 'to': func_node_id(fp, callee), 'type': 'CALLS'})
+                    print(f"[KG] Added CALLS rel: {func_node_id(fp, fname, parent)} -> {func_node_id(fp, callee)}")
+        elif chunk['chunk_type'] == 'import':
+            import_name = chunk['chunk_text'].replace('import', '').replace('from', '').strip()
+            import_node_id = f"import::{import_name}"
+            kg_nodes.append({'id': import_node_id, 'type': 'Import', 'name': import_name})
+            print(f"[KG] Added import node: {import_node_id}")
+            kg_rels.append({'from': file_node_id(fp), 'to': import_node_id, 'type': 'IMPORTS'})
+            print(f"[KG] Added IMPORTS rel: {file_node_id(fp)} -> {import_node_id}")
+    kg_nodes.extend(file_nodes.values())
+    kg_nodes.extend(class_nodes.values())
+    kg_nodes.extend(func_nodes.values())
+    print(f"[KG] Total nodes: {len(kg_nodes)}, Total rels: {len(kg_rels)}")
+
+    # --- Neo4j Write ---
+    try:
+        print(f"[KG] Connecting to Neo4j at {NEO4J_URI}...")
+        driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+        graph_label = repo["neo4j_graph_name"]
+        with driver.session(database=NEO4J_DATABASE) as session:
+            print(f"[KG] Deleting previous graph for label {graph_label}...")
+            session.run(f"MATCH (n:{graph_label}) DETACH DELETE n")
+            print(f"[KG] Creating nodes...")
+            for node in kg_nodes:
+                props = {k: v for k, v in node.items() if k != 'id' and k != 'type'}
+                prop_str = ', '.join([f'{k}: ${k}' for k in props])
+                session.run(f"CREATE (n:{graph_label}:{node['type']} {{id: $id, {prop_str}}})", {'id': node['id'], **props})
+                print(f"[KG] Created node: {node['id']} [{node['type']}]")
+            print(f"[KG] Creating relationships...")
+            for rel in kg_rels:
+                session.run(f"MATCH (a:{graph_label} {{id: $from}}), (b:{graph_label} {{id: $to}}) CREATE (a)-[:{rel['type']}]->(b)", {'from': rel['from'], 'to': rel['to']})
+                print(f"[KG] Created rel: {rel['from']} -[{rel['type']}]-> {rel['to']}")
+        driver.close()
+        print(f"[KG] Knowledge graph for repo {repo['repo_name']} written to Neo4j as label {graph_label}")
+    except Exception as e:
+        print(f"[KG] Failed to write knowledge graph to Neo4j: {e}")
+        neo4j_status = str(e)
+
+    # --- Python KG Extraction ---
+    # Only for Python files: extract nodes and relationships for Neo4j
+    kg_nodes = []
+    kg_rels = []
+    file_nodes = {}
+    class_nodes = {}
+    func_nodes = {}
+    # Helper: get or create node id
+    def file_node_id(file_path):
+        return f"file::{file_path}"
+    def class_node_id(file_path, class_name):
+        return f"class::{file_path}::{class_name}"
+    def func_node_id(file_path, func_name, parent_class=None):
+        if parent_class:
+            return f"func::{file_path}::{parent_class}::{func_name}"
+        return f"func::{file_path}::{func_name}"
+    # Build nodes and relationships
+    for chunk in chunks:
+        if chunk['language'] != 'python':
+            continue
+        fp = chunk['file_path']
+        if file_node_id(fp) not in file_nodes:
+            file_nodes[file_node_id(fp)] = {
+                'id': file_node_id(fp), 'type': 'File', 'file_path': fp
+            }
+        if chunk['chunk_type'] == 'class':
+            cname = chunk['function_name'] or chunk.get('class_name') or chunk.get('name') or chunk.get('parent_class') or 'UnknownClass'
+            class_nodes[class_node_id(fp, cname)] = {
+                'id': class_node_id(fp, cname), 'type': 'Class', 'name': cname, 'file_path': fp
+            }
+            # CONTAINS: file -> class
+            kg_rels.append({'from': file_node_id(fp), 'to': class_node_id(fp, cname), 'type': 'CONTAINS'})
+            # INHERITS: class -> base(s)
+            # Try to extract base class from chunk_text
+            import re
+            m = re.match(r'class\s+(\w+)\(([^)]*)\)', chunk['chunk_text'])
+            if m:
+                bases = [b.strip() for b in m.group(2).split(',') if b.strip()]
+                for base in bases:
+                    kg_rels.append({'from': class_node_id(fp, cname), 'to': f'class::{fp}::{base}', 'type': 'INHERITS'})
+        elif chunk['chunk_type'] == 'function':
+            fname = chunk['function_name']
+            parent = chunk.get('parent_class')
+            func_nodes[func_node_id(fp, fname, parent)] = {
+                'id': func_node_id(fp, fname, parent), 'type': 'Function', 'name': fname, 'file_path': fp, 'parent_class': parent
+            }
+            # CONTAINS: file -> function, or class -> method
+            if parent:
+                kg_rels.append({'from': class_node_id(fp, parent), 'to': func_node_id(fp, fname, parent), 'type': 'CONTAINS'})
+            else:
+                kg_rels.append({'from': file_node_id(fp), 'to': func_node_id(fp, fname), 'type': 'CONTAINS'})
+            # CALLS: function -> function (very basic, look for 'func(' in chunk_text)
+            import re
+            called = set(re.findall(r'(\w+)\s*\(', chunk['chunk_text']))
+            for callee in called:
+                if callee != fname:
+                    kg_rels.append({'from': func_node_id(fp, fname, parent), 'to': func_node_id(fp, callee), 'type': 'CALLS'})
+        elif chunk['chunk_type'] == 'import':
+            # IMPORTS: file -> import
+            import_name = chunk['chunk_text'].replace('import', '').replace('from', '').strip()
+            import_node_id = f"import::{import_name}"
+            kg_nodes.append({'id': import_node_id, 'type': 'Import', 'name': import_name})
+            kg_rels.append({'from': file_node_id(fp), 'to': import_node_id, 'type': 'IMPORTS'})
+    kg_nodes.extend(file_nodes.values())
+    kg_nodes.extend(class_nodes.values())
+    kg_nodes.extend(func_nodes.values())
+
+    # --- Neo4j Write ---
+    neo4j_status = "success"
+    try:
+        driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+        graph_label = repo["neo4j_graph_name"]
+        with driver.session(database=NEO4J_DATABASE) as session:
+            session.run(f"MATCH (n:{graph_label}) DETACH DELETE n")
+            for node in kg_nodes:
+                props = {k: v for k, v in node.items() if k != 'id' and k != 'type'}
+                prop_str = ', '.join([f'{k}: ${k}' for k in props])
+                session.run(f"CREATE (n:{graph_label}:{node['type']} {{id: $id, {prop_str}}})", {'id': node['id'], **props})
+            for rel in kg_rels:
+                session.run(f"MATCH (a:{graph_label} {{id: $from}}), (b:{graph_label} {{id: $to}}) CREATE (a)-[:{rel['type']}]->(b)", {'from': rel['from'], 'to': rel['to']})
+        driver.close()
+        print(f"Knowledge graph for repo {repo['repo_name']} written to Neo4j as label {graph_label}")
+    except Exception as e:
+        print(f"Failed to write knowledge graph to Neo4j: {e}")
+        neo4j_status = str(e)
 
     # Load CodeT5-small model and tokenizer (once per request, can be optimized)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -119,22 +300,25 @@ async def index_repository(request: Request):
 
     # Store embeddings in ChromaDB
     try:
+        print("[EMBED] Connecting to ChromaDB...")
         chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
         collection_name = repo["chroma_collection_name"]
-        print(f"Storing embeddings in ChromaDB collection: {collection_name}")
-        if collection_name not in [c.name for c in chroma_client.list_collections()]:
+        print(f"[EMBED] Storing embeddings in ChromaDB collection: {collection_name}")
+        collections = chroma_client.list_collections()
+        print(f"[EMBED] Existing collections: {[c.name for c in collections]}")
+        if collection_name not in [c.name for c in collections]:
+            print(f"[EMBED] Creating new collection: {collection_name}")
             collection = chroma_client.create_collection(collection_name)
-            print(f"Created new ChromaDB collection: {collection_name}")
         else:
+            print(f"[EMBED] Using existing collection: {collection_name}")
             collection = chroma_client.get_collection(collection_name)
-            print(f"Using existing ChromaDB collection: {collection_name}")
         # Remove all previous embeddings for this repo (idempotency)
         existing = collection.get()
         all_ids = existing.get('ids', [])
-        print(f"Existing embeddings in collection: {len(all_ids)}")
+        print(f"[EMBED] Existing embeddings in collection: {len(all_ids)}")
         if all_ids:
             collection.delete(ids=all_ids)
-            print(f"Deleted {len(all_ids)} old embeddings from collection.")
+            print(f"[EMBED] Deleted {len(all_ids)} old embeddings from collection.")
         # Add all chunk embeddings (only those with valid embeddings)
         valid_chunks = [chunk for chunk in chunks if chunk['embedding'] is not None]
         ids = [chunk['chunk_id'] for chunk in valid_chunks]
@@ -156,23 +340,26 @@ async def index_repository(request: Request):
         ]
         documents = [chunk['chunk_text'] for chunk in valid_chunks]
         if ids and embeddings:
+            print(f"[EMBED] Adding {len(ids)} embeddings to ChromaDB collection {collection_name}")
             collection.add(ids=ids, embeddings=embeddings, metadatas=metadatas, documents=documents)
-            print(f"Added {len(ids)} embeddings to ChromaDB collection {collection_name}")
+            print(f"[EMBED] Added {len(ids)} embeddings to ChromaDB collection {collection_name}")
         else:
-            print("No valid embeddings to add to ChromaDB.")
+            print("[EMBED] No valid embeddings to add to ChromaDB.")
     except Exception as e:
-        print(f"Failed to store embeddings in ChromaDB: {e}")
+        print(f"[EMBED][ERROR] Failed to store embeddings in ChromaDB: {e}")
         return JSONResponse({"error": f"Failed to store embeddings in ChromaDB: {e}"}, status_code=500)
 
     print("Indexing and embedding complete.")
-    return {
-        "success": True,
+    result = {
+        "success": True if neo4j_status == "success" else False,
         "repo_path": repo_path,
         "chunk_count": len(chunks),
         "error_files": error_files,
         "postgres_table": table_name,
-        "chroma_collection": collection_name
+        "chroma_collection": collection_name,
+        "neo4j_status": neo4j_status
     }
+    return result
 # code_indexer/api.py
 # FastAPI app to serve database connection status for the frontend
 
@@ -406,6 +593,66 @@ def clear_chroma_collections():
         return {"success": True}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+@app.get("/api/kg")
+def get_kg(repo_id: str = Query(...)):
+    # Find repo by id
+    rows = list_registered_repositories()
+    columns = [
+        "repo_id", "repo_name", "repo_path", "indexed_at",
+        "postgres_table_name", "chroma_collection_name", "neo4j_graph_name"
+    ]
+    repo = None
+    for row in rows:
+        r = dict(zip(columns, row))
+        if r["repo_id"] == repo_id:
+            repo = r
+            break
+    if not repo:
+        return {"nodes": [], "edges": []}
+    # Query Neo4j for this repo's graph
+    try:
+        driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+        graph_label = repo["neo4j_graph_name"]
+        with driver.session() as session:
+            # Get all nodes
+            node_result = session.run(f"MATCH (n:{graph_label}) RETURN n")
+            nodes = []
+            for rec in node_result:
+                n = rec["n"]
+                nodes.append({
+                    "id": n["id"],
+                    "label": n.get("name", n.get("id", n.labels[0])),
+                    "group": list(n.labels)[-1] if n.labels else "Node"
+                })
+            # Get all relationships
+            edge_result = session.run(f"MATCH (a:{graph_label})-[r]->(b:{graph_label}) RETURN a.id, type(r), b.id")
+            edges = []
+            for rec in edge_result:
+                edges.append({
+                    "from": rec["a.id"], "to": rec["b.id"], "label": rec["type(r)"]
+                })
+        driver.close()
+        return {"nodes": nodes, "edges": edges}
+    except Exception as e:
+        return {"nodes": [], "edges": [], "error": str(e)}
+
+@app.post("/api/clear_neo4j_graphs")
+def clear_neo4j_graphs():
+    try:
+        driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+        with driver.session() as session:
+            session.run("MATCH (n) DETACH DELETE n")
+        driver.close()
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.get("/kg_view.html", response_class=Response)
+def serve_kg_view():
+    with open("web/kg_view.html", "r", encoding="utf-8") as f:
+        html = f.read()
+    return Response(content=html, media_type="text/html")
 
 if __name__ == "__main__":
     import uvicorn

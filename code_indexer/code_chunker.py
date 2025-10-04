@@ -7,11 +7,50 @@ Standalone file walker and chunker for Python, Java, Kotlin, and C++ using Tree-
 """
 
 
+
 import os
 import hashlib
 import ast
 import javalang
 import re
+import fnmatch
+
+# Default ignore patterns (folders/files)
+DEFAULT_IGNORE_DIRS = {
+    '.git', '__pycache__', 'venv', '.venv', 'env', 'node_modules', 'dist', 'build',
+    '.mypy_cache', '.pytest_cache', '.idea', '.vscode', '.ipynb_checkpoints'
+}
+DEFAULT_IGNORE_GLOBS = [
+    '*.egg-info', '*.pyc', '*.pyo', '*.exe', '*.dll', '*.so', '*.dylib', '*.log',
+    '*.zip', '*.tar', '*.tar.gz', '*.rar', '*.db', '*.sqlite', '*.sqlite3',
+    '*.png', '*.jpg', '*.jpeg', '*.gif', '*.svg', '*.pdf', '*.docx', '*.xlsx', '*.pptx'
+]
+
+def load_custom_ignores(root_dir):
+    """Load ignore patterns from .clineignore if present in root_dir."""
+    ignore_dirs = set(DEFAULT_IGNORE_DIRS)
+    ignore_globs = list(DEFAULT_IGNORE_GLOBS)
+    ignore_file = os.path.join(root_dir, '.clineignore')
+    if os.path.exists(ignore_file):
+        with open(ignore_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if line.endswith('/') or (os.sep in line and not line.startswith('*')):
+                    ignore_dirs.add(line.rstrip('/'))
+                else:
+                    ignore_globs.append(line)
+    return ignore_dirs, ignore_globs
+
+def should_ignore(path, ignore_dirs, ignore_globs):
+    parts = set(os.path.normpath(path).split(os.sep))
+    if parts & ignore_dirs:
+        return True
+    for pattern in ignore_globs:
+        if fnmatch.fnmatch(os.path.basename(path), pattern):
+            return True
+    return False
 
 EXT_LANGUAGE_MAP = {
     '.py': 'python',
@@ -24,14 +63,21 @@ EXT_LANGUAGE_MAP = {
     '.h': 'cpp',
 }
 
+
 def walk_source_files(root_dir):
-    """Yield (file_path, language) for supported files under root_dir recursively."""
-    for dirpath, _, filenames in os.walk(root_dir):
+    """Yield (file_path, language) for supported files under root_dir recursively, ignoring dependency and irrelevant files/folders."""
+    ignore_dirs, ignore_globs = load_custom_ignores(root_dir)
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        # Remove ignored directories in-place
+        dirnames[:] = [d for d in dirnames if not should_ignore(os.path.join(dirpath, d), ignore_dirs, ignore_globs)]
         for fname in filenames:
+            fpath = os.path.join(dirpath, fname)
+            if should_ignore(fpath, ignore_dirs, ignore_globs):
+                continue
             ext = os.path.splitext(fname)[1].lower()
             lang = EXT_LANGUAGE_MAP.get(ext)
             if lang:
-                yield os.path.join(dirpath, fname), lang
+                yield fpath, lang
 
 
 def parse_file(file_path, language_name):

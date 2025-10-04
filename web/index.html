@@ -166,6 +166,7 @@
                     <div id="repo-form-progress-bar-inner" style="width:0%; height:100%; background:#1976d2; transition:width 0.4s;"></div>
                 </div>
                 <span id="repo-form-progress-text" style="font-size:0.98em; color:#1976d2;"></span>
+                <div id="repo-form-progress-stack" style="margin-top:8px; max-height:120px; overflow-y:auto;"></div>
             </div>
             <span id="repo-form-msg" style="margin-left:18px; font-size:0.98em;"></span>
         </form>
@@ -254,7 +255,6 @@
             const path = document.getElementById('repo_path').value.trim();
             const msg = document.getElementById('repo-form-msg');
             const btn = document.getElementById('repo-form-btn');
-            const loader = document.getElementById('repo-form-loader');
             msg.textContent = '';
             msg.style.color = '#222';
             if (!name || !path) {
@@ -265,6 +265,7 @@
             btn.disabled = true;
             document.getElementById('repo-form-progress').style.display = 'flex';
             setProgress(0, 'Registering repository...');
+            startTime = Date.now();
             try {
                 // Register repository first
                 const res = await fetch('/api/register_repository', {
@@ -274,30 +275,54 @@
                 });
                 const data = await res.json();
                 if (data.success) {
-                    setProgress(20, 'Repository registered. Chunking and embedding...');
+                    setProgress(20, 'Repository registered. Chunking and embedding... (0s)');
                     try {
-                        // Simulate progress for chunking/embedding (since backend is one call)
                         let progress = 20;
+                        let phase = 0;
+                        const phases = [
+                            { pct: 20, text: 'Chunking source files' },
+                            { pct: 40, text: 'Generating embeddings' },
+                            { pct: 60, text: 'Storing in Postgres/ChromaDB' },
+                            { pct: 80, text: 'Building knowledge graph (Neo4j): extracting nodes' },
+                            { pct: 85, text: 'Building knowledge graph (Neo4j): extracting relationships' },
+                            { pct: 90, text: 'Building knowledge graph (Neo4j): writing to Neo4j' },
+                        ];
                         const progressInterval = setInterval(() => {
-                            progress += Math.random() * 10;
-                            if (progress > 80) progress = 80;
-                            setProgress(progress, 'Chunking and embedding...');
-                        }, 600);
+                            const elapsed = formatElapsed(Date.now() - startTime);
+                            if (phase < phases.length) {
+                                setProgress(phases[phase].pct, `${phases[phase].text}... (${elapsed})`);
+                                phase++;
+                            } else {
+                                progress += Math.random() * 2;
+                                if (progress > 95) progress = 95;
+                                setProgress(progress, `Finalizing... (${elapsed})`);
+                            }
+                        }, 800);
                         const chunkRes = await fetch('/api/index_repository', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ repo_path: path })
                         });
                         clearInterval(progressInterval);
-                        setProgress(90, 'Storing in databases...');
+                        const elapsed = formatElapsed(Date.now() - startTime);
+                        setProgress(100, `Repository registered, indexed, and KG built! (${elapsed})`);
                         const chunkData = await chunkRes.json();
+                        // Show step-by-step status if available
+                        if (chunkData.step_status) {
+                            Object.entries(chunkData.step_status).forEach(([step, status]) => {
+                                if (status === 'success') {
+                                    addStepMessage(`✔️ ${step} succeeded`);
+                                } else if (typeof status === 'string') {
+                                    addStepMessage(`❌ ${step} failed: ${status}`);
+                                }
+                            });
+                        }
                         if (chunkData.success) {
-                            setProgress(100, `Repository registered and indexed! (${chunkData.chunk_count} chunks)`);
-                            msg.textContent = `Repository registered and chunked! (${chunkData.chunk_count} chunks)`;
+                            msg.textContent = `Repository registered, chunked, and KG built! (${chunkData.chunk_count} chunks, ${elapsed})`;
                             msg.style.color = '#4caf50';
                         } else {
-                            setProgress(100, chunkData.error || 'Chunking failed.');
-                            msg.textContent = chunkData.error || 'Chunking failed.';
+                            setProgress(100, 'Indexing completed with errors.');
+                            msg.textContent = 'Indexing completed with errors.';
                             msg.style.color = '#e53935';
                         }
                     } catch (err) {
@@ -328,12 +353,26 @@
             const txt = document.getElementById('repo-form-progress-text');
             bar.style.width = percent + '%';
             txt.textContent = text || '';
+            addStepMessage(text);
+        }
+        // Step message stack
+        function addStepMessage(msg) {
+            if (!msg) return;
+            const stackDiv = document.getElementById('repo-form-progress-stack');
+            const newMsg = document.createElement('div');
+            newMsg.textContent = msg;
+            newMsg.style.fontSize = '0.97em';
+            newMsg.style.marginBottom = '2px';
+            // Add to bottom for chronological order
+            stackDiv.appendChild(newMsg);
+            // Optionally, scroll to bottom to show latest
+            stackDiv.scrollTop = stackDiv.scrollHeight;
         }
         });
         // Handle clear all repositories
         document.getElementById('clear-repos-btn').addEventListener('click', async function(e) {
             e.preventDefault();
-            if (!confirm('Are you sure you want to clear all registered repositories, delete ALL PostgreSQL tables, and delete ALL ChromaDB collections?')) return;
+            if (!confirm('Are you sure you want to clear all registered repositories, delete ALL PostgreSQL tables, delete ALL ChromaDB collections, and delete ALL Neo4j graphs?')) return;
             const btn = document.getElementById('clear-repos-btn');
             const loader = document.getElementById('clear-repos-loader');
             btn.disabled = true;
@@ -351,8 +390,12 @@
                 const chromaRes = await fetch('/api/clear_chroma_collections', { method: 'POST' });
                 const chromaData = await chromaRes.json();
                 if (!chromaData.success) throw new Error(chromaData.error || 'Failed to clear ChromaDB collections.');
+                // Clear Neo4j graphs
+                const neo4jRes = await fetch('/api/clear_neo4j_graphs', { method: 'POST' });
+                const neo4jData = await neo4jRes.json();
+                if (!neo4jData.success) throw new Error(neo4jData.error || 'Failed to clear Neo4j graphs.');
                 fetchRepositories();
-                alert('All repositories, PostgreSQL tables, and ChromaDB collections deleted.');
+                alert('All repositories, PostgreSQL tables, ChromaDB collections, and Neo4j graphs deleted.');
             } catch (err) {
                 alert(err.message || 'Failed to clear all data.');
             } finally {

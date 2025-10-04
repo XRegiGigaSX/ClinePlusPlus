@@ -11,9 +11,10 @@ POSTGRES_USER = os.getenv('POSTGRES_USER', 'postgres')
 POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD', 'rayyan2008')
 
 # Neo4j connection settings (edit as needed)
-NEO4J_URI = os.getenv('NEO4J_URI', 'bolt://localhost:7687')
+NEO4J_URI = os.getenv('NEO4J_URI', 'neo4j://127.0.0.1:7687')
 NEO4J_USER = os.getenv('NEO4J_USER', 'neo4j')
 NEO4J_PASSWORD = os.getenv('NEO4J_PASSWORD', 'rayyan2008')
+NEO4J_DATABASE = os.getenv('NEO4J_DATABASE', 'code_graph')
 
 # ChromaDB storage path
 CHROMA_PATH = os.getenv('CHROMA_PATH', os.path.join(os.path.dirname(__file__), 'chroma_storage'))
